@@ -288,46 +288,49 @@ def build_flat_txt_doc(filename: str,
             page_height = page.height
             page_width = page.width
             count = 0
-            page_image_filename = f'{EXTRACTED_IMAGES_PATH}/{base_filename}_image_p{page_counter}_all.png'
+            page_image_filename_base = (f'{EXTRACTED_IMAGES_PATH}/'
+                                        f'{base_filename}_image'
+                                        f'_p{page_counter}')
+            page_image_filename = (f'{page_image_filename_base}.png')
             page_image_bbox = (0, page_height, page_width, 0)
             image_obj = page.to_image(resolution=400)
             image_obj.save(page_image_filename)
             page_was_saved = True
-
-            for image in page.images:
-                image_was_saved = False
-                image_filename = (f'{EXTRACTED_IMAGES_PATH}/{base_filename}_image'
-                                  f'_p{page_counter}'
-                                  f'_i{image_counter}.png')
-                y1 = snap_y(page_height, image['y1'])
-                y0 = snap_y(page_height, image['y0'])
-
-                x0 = snap_x(page_width, image['x0'])
-                x1 = snap_x(page_width, image['x1'])
-
-                image_bbox = (x0, y1, x1, y0)
-                page_image_bboxes.append({
-                                         imagefile_key: image_filename,
-                                         bbox_key: image_bbox,
-                                         desc_key: "",
-                                         page_key: page_counter,
-                                         docfile_key: doc_original_filename,
-                                         parent_imagefile_key: os.path.basename(page_image_filename),
-                                         image_index_key: image_counter
-                                         })
-                print(f"\n<{image_filename}>: (x0, y1, x1, y0): {image_bbox}")
-                bbox = page.bbox
-
-                if not bbox_inside(bbox, image_bbox):
-                    image_bbox = bbox
-                if bbox_area(image_bbox) > 0:     
-                    cropped_page = page.crop(image_bbox)
-                    image_obj = cropped_page.to_image(resolution=400)
-                    image_obj.save(image_filename)
-                    image_was_saved = True
-                #cropped_page.save(image_filename)
+              
+            if len(page.images) > 0:
+                for image in page.images:
+                    image_was_saved = False
+                    image_filename = (f'{page_image_filename_base}'
+                                      f'_i{image_counter}.png')
+                    y1 = snap_y(page_height, image['y1'])
+                    y0 = snap_y(page_height, image['y0'])
                 
-                image_counter += 1
+                    x0 = snap_x(page_width, image['x0'])
+                    x1 = snap_x(page_width, image['x1'])
+                
+                    image_bbox = (x0, y1, x1, y0)
+                    page_image_bboxes.append({
+                                             imagefile_key: image_filename,
+                                             bbox_key: image_bbox,
+                                             desc_key: "",
+                                             page_key: page_counter,
+                                             docfile_key: doc_original_filename,
+                                             parent_imagefile_key: os.path.basename(page_image_filename),
+                                             image_index_key: image_counter
+                                             })
+                    print(f"\n<{image_filename}>: (x0, y1, x1, y0): {image_bbox}")
+                    bbox = page.bbox
+                
+                    if not bbox_inside(bbox, image_bbox):
+                        image_bbox = bbox
+                    if bbox_area(image_bbox) > 0:     
+                        cropped_page = page.crop(image_bbox)
+                        image_obj = cropped_page.to_image(resolution=400)
+                        image_obj.save(image_filename)
+                        image_was_saved = True
+                    #cropped_page.save(image_filename)
+                    
+                    image_counter += 1
 
             for obj in page.chars:
                 txt = obj['text']
