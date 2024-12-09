@@ -1,5 +1,11 @@
 # pdftollm
-Application makes decomposition of pdf-file to textual chunks and attributed pictures for LLM.
+Application makes decomposition of pdf-file to textual chunks and attributed pictures for ColPALI and LLM.
+
+Output text chunks are placed to a directory defined by 
+Output picture has name like:
+```
+{EXTRACTED_IMAGES_PATH}/{base_filename}_image_p{page_counter}_i{image_counter}.png
+```                                  
 
 ## Usage
 
@@ -15,7 +21,7 @@ Default  config file is: "pdftollm.cfg":
 | Variable name | Default value | Description |
 |----|----|----|
 |reference_docs_path| './pdf_docs' | Select folder with reference pdf docs. |
-|converted_docs_path | './txt_from_pdf_docs' | Select folder with output txt docs. 
+|extracted_chunks_path| './txt_from_pdf_docs' | Select folder with output txt docs. 
 |extracted_images_path| './pict_from_pdf_docs' | Select folder with output txt docs.| 
 |source_tag| 'source' | Select reference text separator.|
 |quote_tag| 'quote'| Select reference text separator.|

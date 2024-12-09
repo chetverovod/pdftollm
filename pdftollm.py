@@ -14,7 +14,7 @@ from PIL.PngImagePlugin import PngInfo
 # Load settings from configuration file.
 cfg = config.Config('pdftollm.cfg')
 REF_DOCS_PATH = cfg['reference_docs_path']
-CONVERTED_DOCS_PATH = cfg['converted_docs_path']
+EXTRACTED_CHUNKS_PATH = cfg['extracted_chunks_path']
 EXTRACTED_IMAGES_PATH = cfg['extracted_images_path']
 
 SOURCE_TAG = cfg['source_tag']
@@ -296,7 +296,9 @@ def build_flat_txt_doc(filename: str,
 
             for image in page.images:
                 image_was_saved = False
-                image_filename = f'{EXTRACTED_IMAGES_PATH}/{base_filename}_image_p{page_counter}_n{image_counter}.png'
+                image_filename = (f'{EXTRACTED_IMAGES_PATH}/{base_filename}_image'
+                                  f'_p{page_counter}'
+                                  f'_i{image_counter}.png')
                 y1 = snap_y(page_height, image['y1'])
                 y0 = snap_y(page_height, image['y0'])
 
@@ -437,7 +439,7 @@ def build_single_txt_doc(filename: str, mode: str = '',
     output_filename = filename.replace(".pdf", ".txt")
 
     base_filename = os.path.basename(filename).replace(".pdf", ".txt")
-    output_filename = f"{CONVERTED_DOCS_PATH}/{base_filename}"
+    output_filename = f"{EXTRACTED_CHUNKS_PATH}/{base_filename}"
     print(f'Output document name: <{output_filename}>')
 
     with open(output_filename, "w", encoding="utf-8") as f:
