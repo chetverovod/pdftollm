@@ -9,17 +9,17 @@ Application makes decomposition of pdf-file to textual chunks and attributed pic
 ```
 
 ### Config File 
-Default  config file is: "pdf_to_txt.cfg":
+Default  config file is: "pdftollm.cfg":
 
 
 | Variable name | Default value | Description |
 |----|----|----|
-|reference_docs_path| '../pdf_docs' | Select folder with reference pdf docs. |
-|converted_docs_path | '../txt_from_pdf_docs' | Select folder with output txt docs. 
-|extracted_images_path| '../extracted_images' | Select folder with output txt docs.| 
+|reference_docs_path| './pdf_docs' | Select folder with reference pdf docs. |
+|converted_docs_path | './txt_from_pdf_docs' | Select folder with output txt docs. 
+|extracted_images_path| './pict_from_pdf_docs' | Select folder with output txt docs.| 
 |source_tag| 'source' | Select reference text separator.|
 |quote_tag| 'quote'| Select reference text separator.|
-| print_context| True  # Print context which will be added to prompt.| 
+|print_context| True  # Print context which will be added to prompt.| 
 |drop_words | ['Документ предоставлен КонсультантПлюс\n', 'Документ предоставлен', 'www.consultant.ru', 
              'КонсультантПлюс', 'надежная правовая поддержка', 
              'r"Дата сохранения: \\d{2}\\.\\d{2}\\.\\d{4}"',

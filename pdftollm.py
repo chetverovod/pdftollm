@@ -12,7 +12,7 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo 
 
 # Load settings from configuration file.
-cfg = config.Config('pdf_to_txt.cfg')
+cfg = config.Config('pdftollm.cfg')
 REF_DOCS_PATH = cfg['reference_docs_path']
 CONVERTED_DOCS_PATH = cfg['converted_docs_path']
 EXTRACTED_IMAGES_PATH = cfg['extracted_images_path']
