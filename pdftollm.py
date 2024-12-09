@@ -16,7 +16,7 @@ cfg = config.Config('pdftollm.cfg')
 REF_DOCS_PATH = cfg['reference_docs_path']
 EXTRACTED_CHUNKS_PATH = cfg['extracted_chunks_path']
 EXTRACTED_IMAGES_PATH = cfg['extracted_images_path']
-
+IMAGES_RESOLUTION = cfg['images_resolution']
 SOURCE_TAG = cfg['source_tag']
 QUOTE_TAG = cfg['quote_tag']
 DROP_WORDS = cfg['drop_words']
@@ -273,10 +273,11 @@ def build_flat_txt_doc(filename: str,
     parent_imagefile_key = "ParentImageFile"
     page_key = "Page"
     image_index_key = "ImageIndex"
-
+    bboxes_to_exclude = [] # List of boundary boxes for text removing.
     page_was_saved = False
     page_counter = 0
     image_counter = 0
+    table_counter = 0
     complete_text = ''
     doc_original_filename = os.path.basename(filename)
     base_filename = doc_original_filename.replace(".pdf", "")
@@ -293,10 +294,10 @@ def build_flat_txt_doc(filename: str,
                                         f'_p{page_counter}')
             page_image_filename = (f'{page_image_filename_base}.png')
             page_image_bbox = (0, page_height, page_width, 0)
-            image_obj = page.to_image(resolution=400)
+            image_obj = page.to_image(resolution=IMAGES_RESOLUTION)
             image_obj.save(page_image_filename)
             page_was_saved = True
-              
+            image_was_saved = False
             if len(page.images) > 0:
                 for image in page.images:
                     image_was_saved = False
@@ -320,14 +321,14 @@ def build_flat_txt_doc(filename: str,
                                              })
                     print(f"\n<{image_filename}>: (x0, y1, x1, y0): {image_bbox}")
                     bbox = page.bbox
-                
                     if not bbox_inside(bbox, image_bbox):
                         image_bbox = bbox
                     if bbox_area(image_bbox) > 0:     
                         cropped_page = page.crop(image_bbox)
-                        image_obj = cropped_page.to_image(resolution=400)
+                        image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
                         image_obj.save(image_filename)
                         image_was_saved = True
+                        bboxes_to_exclude.append(image_bbox)
                     #cropped_page.save(image_filename)
                     
                     image_counter += 1
@@ -345,10 +346,10 @@ def build_flat_txt_doc(filename: str,
                 for d in page_image_bboxes:
                     if bbox_inside(d[bbox_key], txt_bbox):
                         d[desc_key] = f"{d[desc_key]}{txt}"
-            
+
             for d in page_image_bboxes:
                 meta = PngInfo()
-                
+
                 if len(d[desc_key]) > 0:
                     meta.add_text(desc_key, d[desc_key])
                 else:
@@ -359,10 +360,66 @@ def build_flat_txt_doc(filename: str,
                 meta.add_text(parent_imagefile_key, d[parent_imagefile_key])
                 meta.add_text(image_index_key, str(d[image_index_key]))
                 meta.add_text(docfile_key, d[docfile_key])
-                if image_was_saved:     
+                if image_was_saved:
                     img = Image.open(image_filename)
                     img.save(image_filename, pnginfo=meta)  
             print(page_image_bboxes)
+
+            table_strategy = {
+            #  "vertical_strategy": "text", 
+            #  "vertical_strategy": "explicit", 
+            #  "horizontal_strategy": "explicit"
+            }
+            t = page.find_tables(table_settings=table_strategy)
+            print(f'page: {page_counter} tables: {len(t)}')
+            if len(t) > 0:
+                table_was_saved = False
+                for i in t:
+                    table_meta = PngInfo()
+                    table_bbox = i.bbox
+                    table_filename = (f'{page_image_filename_base}'
+                                      f'_t{table_counter}.png')
+                    table_counter += 1
+                    bbox = page.bbox
+                    if not bbox_inside(bbox, table_bbox):
+                        table_bbox = bbox
+                    if bbox_area(table_bbox) > 0:     
+                        cropped_page = page.crop(table_bbox)
+                        image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
+                        image_obj.save(table_filename)
+                        bboxes_to_exclude.append(table_bbox)
+                        table_was_saved = True
+                    if table_was_saved:
+                        table_meta.add_text(bbox_key, str(d[bbox_key]))
+                        table_meta.add_text(page_key, str(d[page_key]))
+                        img = Image.open(table_filename)
+                        img.save(table_filename, pnginfo=table_meta)
+
+                tables = page.extract_tables(table_settings=table_strategy)
+                for e in tables:
+                    table_md = '|'
+                    line = '|'
+                    for c, row in enumerate(e):
+                        for cell in row:
+                            s = str(cell)
+                            s = s.replace("\n", " ")
+                            table_md = f'{table_md} {s} |'
+                            line = f'{line}---|'
+                        if c == 0:
+                            table_md = f'{table_md}\n{line}'
+                        table_md = f'{table_md}\n'
+                print(f'<table {table_counter}>')
+                print(table_md)
+                print('</table>')
+                #exit(0)
+                """            
+                    row = '|'
+                    for r in e:
+                        for cell in r:
+                            row = f'{row}{cell}|' 
+                    print(row)    
+                """    
+                #exit(0)
 
             txt = page.extract_text(layout=True)
             txt = replace_drop_words_by_stab(txt, DROP_WORDS, "")
@@ -387,7 +444,7 @@ def build_flat_txt_doc(filename: str,
             complete_text = f'{complete_text}{txt}'
 
             page_counter += 1
-    return complete_text, page_counter
+    return complete_text, page_counter, table_counter, image_counter
 
 
 def get_page_numbers_list(filename: str) -> list[int]:
@@ -415,13 +472,13 @@ def get_page_numbers_list(filename: str) -> list[int]:
                     top_rate = rate
                 score_list.append(rate)
 
-    print(f"page_count: {PAGE_COUNT}")
+    print(f"Page_count: {PAGE_COUNT}")
     if top_rate[1] < WORST_RATE:
         print('Beginning page not found.')
         begining_page = None                
     else:
         begining_page = top_rate[0]                
-    print(f'beginig_page: {begining_page}')
+    print(f'Beginig_page_number: {begining_page}')
     return begining_page
 
 
@@ -431,10 +488,12 @@ def build_single_txt_doc(filename: str, mode: str = '',
         raise ValueError(f'Not a pdf file: {filename}')
     print(f"\nInput document file: {filename}")
     page_counter = 0
-    complete_text, page_counter = build_flat_txt_doc(filename,
-                                                     SENTENCE_SEPARATOR)
+    complete_text, page_counter, table_counter, image_counter \
+        = build_flat_txt_doc(filename, SENTENCE_SEPARATOR)
     print(f'Symbols in document: {len(complete_text)}')
     print(f'Page_counter: {page_counter}')
+    print(f'Image_counter: {image_counter}')
+    print(f'Table_counter: {table_counter}')
     doc_name = count_phrase_frequency(complete_text, page_counter)
 
     complete_text = ''
