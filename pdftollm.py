@@ -29,7 +29,7 @@ DOCUMENT = 'document'
 PAGE_SEPARATOR = '<------------------page_separator-------------------->'
 SENTENCE_SEPARATOR = '. ' 
 STAB = 'blabla'
-
+CROP_TXT = cfg['crop_txt']
 
 def find_max_integer_key(dictionary):
     max_value = max(dictionary.values())
@@ -262,189 +262,268 @@ def bbox_area(box: tuple):
     return res
 
 
-def build_flat_txt_doc(filename: str,
-                       page_separator: str = '\n\n') -> int:
-    if not filename.endswith(".pdf"):
-        return -1
-    desc_key = "Description"
-    bbox_key = "Bbox"
-    docfile_key = "DocFile"
-    imagefile_key = "ImageFile"
-    parent_imagefile_key = "ParentImageFile"
-    page_key = "Page"
-    image_index_key = "ImageIndex"
-    bboxes_to_exclude = [] # List of boundary boxes for text removing.
-    page_was_saved = False
-    page_counter = 0
-    image_counter = 0
-    table_counter = 0
-    complete_text = ''
-    doc_original_filename = os.path.basename(filename)
-    base_filename = doc_original_filename.replace(".pdf", "")
-    with pdfplumber.open(filename) as pdf:
-        pages = pdf.pages
-        for page in pages:
-            page_was_saved = False
-            page_image_bboxes = []
-            page_height = page.height
-            page_width = page.width
-            count = 0
-            page_image_filename_base = (f'{EXTRACTED_IMAGES_PATH}/'
-                                        f'{base_filename}_image'
-                                        f'_p{page_counter}')
-            page_image_filename = (f'{page_image_filename_base}.png')
-            page_image_bbox = (0, page_height, page_width, 0)
-            image_obj = page.to_image(resolution=IMAGES_RESOLUTION)
-            image_obj.save(page_image_filename)
-            page_was_saved = True
-            image_was_saved = False
-            if len(page.images) > 0:
-                for image in page.images:
-                    image_was_saved = False
-                    image_filename = (f'{page_image_filename_base}'
-                                      f'_i{image_counter}.png')
-                    y1 = snap_y(page_height, image['y1'])
-                    y0 = snap_y(page_height, image['y0'])
-                
-                    x0 = snap_x(page_width, image['x0'])
-                    x1 = snap_x(page_width, image['x1'])
-                
-                    image_bbox = (x0, y1, x1, y0)
-                    page_image_bboxes.append({
-                                             imagefile_key: image_filename,
-                                             bbox_key: image_bbox,
-                                             desc_key: "",
-                                             page_key: page_counter,
-                                             docfile_key: doc_original_filename,
-                                             parent_imagefile_key: os.path.basename(page_image_filename),
-                                             image_index_key: image_counter
-                                             })
-                    print(f"\n<{image_filename}>: (x0, y1, x1, y0): {image_bbox}")
-                    bbox = page.bbox
-                    if not bbox_inside(bbox, image_bbox):
-                        image_bbox = bbox
-                    if bbox_area(image_bbox) > 0:     
-                        cropped_page = page.crop(image_bbox)
-                        image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
-                        image_obj.save(image_filename)
-                        image_was_saved = True
-                        bboxes_to_exclude.append(image_bbox)
-                    #cropped_page.save(image_filename)
-                    
-                    image_counter += 1
+def cropped_text_of_page(page, list_of_bboxes) -> str:
+    cropped_text = ''
+    for obj in page.chars:
+        txt = obj['text']
+        y1 = obj['y1']
+        y0 = obj['y0']
+        x0 = obj['x0']
+        x1 = obj['x1']
+        txt_bbox = (x0, y1, x1, y0)
+        add_char = True
+        for ex in list_of_bboxes:
+            if bbox_inside(ex, txt_bbox):
+                add_char = False
+                break
+        if add_char is True:
+            cropped_text = f"{cropped_text}{txt}"
+    cropped_text = replace_drop_words_by_stab(cropped_text, DROP_WORDS, "")
+    return cropped_text
 
-            for obj in page.chars:
-                txt = obj['text']
-                count += 1
-                y1 = snap_y(page_height, obj['y1'])
-                y0 = snap_y(page_height, obj['y0'])
 
-                x0 = snap_x(page_width, obj['x0'])
-                x1 = snap_x(page_width, obj['x1'])
-                txt_bbox = (x0, y1, x1, y0)
-                #print(f"\n<{txt}>: (x0, y1, x1, y0): {txt_bbox}")
+class PdfCrauler():
+    def __init__(self, filename: str):
+        self.desc_key = "Description"
+        self.bbox_key = "Bbox"
+        self.docfile_key = "DocFile"
+        self.imagefile_key = "ImageFile"
+        self.parent_imagefile_key = "ParentImageFile"
+        self.page_key = "Page"
+        self.image_index_key = "ImageIndex"
+        # List of boundary boxes on current page for text removing.
+        self.bboxes_to_exclude = []
+        self.table_strategy = {
+        #  "vertical_strategy": "text", 
+        #  "vertical_strategy": "explicit", 
+        #  "horizontal_strategy": "explicit"
+        }
+        self.table_counter = 0
+        self.page_was_saved = False
+        self.page_counter = 0
+        self.image_counter = 0
+        self.table_counter = 0
+        self.complete_text = ''
+        self.filename = filename
+        if not self.filename.endswith(".pdf"):
+            return -1
+        self.doc_original_filename = ''
+        self.base_filename = ''
+        self.page_image_filename_base = ''
+
+    def save_tables(self, page) -> int:
+        t = page.find_tables(table_settings=self.table_strategy)
+        if len(t) > 0:
+            table_was_saved = False
+            for i in t:
+                table_meta = PngInfo()
+                table_bbox = i.bbox
+                table_filename = (f'{self.page_image_filename_base}'
+                                  f'_t{self.table_counter}.png')
+                self.table_counter += 1
+                bbox = page.bbox
+                if not bbox_inside(bbox, table_bbox):
+                    table_bbox = bbox
+                if bbox_area(table_bbox) > 0:     
+                    cropped_page = page.crop(table_bbox)
+                    image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
+                    image_obj.save(table_filename)
+                    self.bboxes_to_exclude.append(table_bbox)
+                    table_was_saved = True
+                if table_was_saved:
+                    table_meta.add_text(self.bbox_key, str(table_bbox))
+                    table_meta.add_text(self.page_key, str(self.page_counter))
+                    img = Image.open(table_filename)
+                    img.save(table_filename, pnginfo=table_meta)
+
+            tables = page.extract_tables(table_settings=self.table_strategy)
+            for e in tables:
+                table_md = '|'
+                line = '|'
+                for c, row in enumerate(e):
+                    for cell in row:
+                        s = str(cell)
+                        s = s.replace("\n", " ")
+                        table_md = f'{table_md} {s} |'
+                        line = f'{line}---|'
+                    if c == 0:
+                        table_md = f'{table_md}\n{line}'
+                    table_md = f'{table_md}\n'
+            print(f'<table {self.table_counter}>')
+            print(table_md)
+            print('</table>')
+            return len(t)
+
+    def build_flat_txt_doc(self,
+                           page_separator: str = '\n\n') -> int:
+        page_was_saved = False
+        self.complete_text = ''
+        self.doc_original_filename = os.path.basename(self.filename)
+        self.base_filename = self.doc_original_filename.replace(".pdf", "")
+        with pdfplumber.open(self.filename) as pdf:
+            pages = pdf.pages
+            for page in pages:
+                self.bboxes_to_exclude = []
+                page_was_saved = False
+                page_image_bboxes = []
+                page_height = page.height
+                page_width = page.width
+                count = 0
+                self.page_image_filename_base = (f'{EXTRACTED_IMAGES_PATH}/'
+                                                 f'{self.base_filename}_image'
+                                                 f'_p{self.page_counter}')
+                page_image_filename = (f'{self.page_image_filename_base}.png')
+                page_image_bbox = (0, page_height, page_width, 0)
+                image_obj = page.to_image(resolution=IMAGES_RESOLUTION)
+                image_obj.save(page_image_filename)
+                page_was_saved = True
+                image_was_saved = False
+                if len(page.images) > 0:
+                    for image in page.images:
+                        image_was_saved = False
+                        image_filename = (f'{self.page_image_filename_base}'
+                                          f'_i{self.image_counter}.png')
+                        y1 = snap_y(page_height, image['y1'])
+                        y0 = snap_y(page_height, image['y0'])
+
+                        x0 = snap_x(page_width, image['x0'])
+                        x1 = snap_x(page_width, image['x1'])
+
+                        image_bbox = (x0, y1, x1, y0)
+                        page_image_bboxes.append({
+                                                 self.imagefile_key: image_filename,
+                                                 self.bbox_key: image_bbox,
+                                                 self.desc_key: "",
+                                                 self.page_key: self.page_counter,
+                                                 self.docfile_key: self.doc_original_filename,
+                                                 self.parent_imagefile_key: os.path.basename(page_image_filename),
+                                                 self.image_index_key: self.image_counter
+                                                 })
+                        print(f"\n<{image_filename}>: (x0, y1, x1, y0): "
+                              f"{image_bbox}")
+                        bbox = page.bbox
+                        if not bbox_inside(bbox, image_bbox):
+                            image_bbox = bbox
+                        if bbox_area(image_bbox) > 0:     
+                            cropped_page = page.crop(image_bbox)
+                            image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
+                            image_obj.save(image_filename)
+                            image_was_saved = True
+                            self.bboxes_to_exclude.append(image_bbox)
+                        #cropped_page.save(image_filename)
+
+                        self.image_counter += 1
+
+                for obj in page.chars:
+                    txt = obj['text']
+                    count += 1
+                    y1 = snap_y(page_height, obj['y1'])
+                    y0 = snap_y(page_height, obj['y0'])
+
+                    x0 = snap_x(page_width, obj['x0'])
+                    x1 = snap_x(page_width, obj['x1'])
+                    txt_bbox = (x0, y1, x1, y0)
+                    #print(f"\n<{txt}>: (x0, y1, x1, y0): {txt_bbox}")
+                    for d in page_image_bboxes:
+                        if bbox_inside(d[self.bbox_key], txt_bbox):
+                            d[self.desc_key] = f"{d[self.desc_key]}{txt}"
+
                 for d in page_image_bboxes:
-                    if bbox_inside(d[bbox_key], txt_bbox):
-                        d[desc_key] = f"{d[desc_key]}{txt}"
+                    meta = PngInfo()
 
-            for d in page_image_bboxes:
-                meta = PngInfo()
+                    if len(d[self.desc_key]) > 0:
+                        meta.add_text(self.desc_key, d[self.desc_key])
+                    else:
+                        meta.add_text(self.desc_key, "None")
+                    meta.add_text(self.bbox_key, str(d[self.bbox_key]))
+                    meta.add_text(self.page_key, str(d[self.page_key]))
+                    meta.add_text(self.imagefile_key, os.path.basename(d[self.imagefile_key]))
+                    meta.add_text(self.parent_imagefile_key, d[self.parent_imagefile_key])
+                    meta.add_text(self.image_index_key, str(d[self.image_index_key]))
+                    meta.add_text(self.docfile_key, d[self.docfile_key])
+                    if image_was_saved:
+                        img = Image.open(image_filename)
+                        img.save(image_filename, pnginfo=meta)  
+                print(page_image_bboxes)
+                """     
+                table_strategy = {
+                #  "vertical_strategy": "text", 
+                #  "vertical_strategy": "explicit", 
+                #  "horizontal_strategy": "explicit"
+                }
+                t = page.find_tables(table_settings=table_strategy)
+                print(f'page: {self.page_counter} tables: {len(t)}')
+                if len(t) > 0:
+                    table_was_saved = False
+                    for i in t:
+                        table_meta = PngInfo()
+                        table_bbox = i.bbox
+                        table_filename = (f'{self.page_image_filename_base}'
+                                          f'_t{self.table_counter}.png')
+                        self.table_counter += 1
+                        bbox = page.bbox
+                        if not bbox_inside(bbox, table_bbox):
+                            table_bbox = bbox
+                        if bbox_area(table_bbox) > 0:     
+                            cropped_page = page.crop(table_bbox)
+                            image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
+                            image_obj.save(table_filename)
+                            bboxes_to_exclude.append(table_bbox)
+                            table_was_saved = True
+                        if table_was_saved:
+                            table_meta.add_text(bbox_key, str(d[bbox_key]))
+                            table_meta.add_text(page_key, str(d[page_key]))
+                            img = Image.open(table_filename)
+                            img.save(table_filename, pnginfo=table_meta)
 
-                if len(d[desc_key]) > 0:
-                    meta.add_text(desc_key, d[desc_key])
+                    tables = page.extract_tables(table_settings=table_strategy)
+                    for e in tables:
+                        table_md = '|'
+                        line = '|'
+                        for c, row in enumerate(e):
+                            for cell in row:
+                                s = str(cell)
+                                s = s.replace("\n", " ")
+                                table_md = f'{table_md} {s} |'
+                                line = f'{line}---|'
+                            if c == 0:
+                                table_md = f'{table_md}\n{line}'
+                            table_md = f'{table_md}\n'
+                    print(f'<table {table_counter}>')
+                    print(table_md)
+                    print('</table>')
+                """
+                tables_on_page = self.save_tables(page)
+                print(f'page: {self.page_counter} tables: {tables_on_page}')
+
+                if CROP_TXT is True:
+                    txt = cropped_text_of_page(page, self.bboxes_to_exclude)
                 else:
-                    meta.add_text(desc_key, "None")
-                meta.add_text(bbox_key, str(d[bbox_key]))
-                meta.add_text(page_key, str(d[page_key]))
-                meta.add_text(imagefile_key, os.path.basename(d[imagefile_key]))
-                meta.add_text(parent_imagefile_key, d[parent_imagefile_key])
-                meta.add_text(image_index_key, str(d[image_index_key]))
-                meta.add_text(docfile_key, d[docfile_key])
-                if image_was_saved:
-                    img = Image.open(image_filename)
-                    img.save(image_filename, pnginfo=meta)  
-            print(page_image_bboxes)
+                    txt = page.extract_text(layout=True)
+                    txt = replace_drop_words_by_stab(txt, DROP_WORDS, "")
+                 
+                page_meta = PngInfo()
+                if len(txt) > 0:
+                    clean = re.sub(r'\s+', ' ', txt).strip()
+                    page_meta.add_text(self.desc_key, clean)
+                else:
+                    page_meta.add_text(self.desc_key, "None")
 
-            table_strategy = {
-            #  "vertical_strategy": "text", 
-            #  "vertical_strategy": "explicit", 
-            #  "horizontal_strategy": "explicit"
-            }
-            t = page.find_tables(table_settings=table_strategy)
-            print(f'page: {page_counter} tables: {len(t)}')
-            if len(t) > 0:
-                table_was_saved = False
-                for i in t:
-                    table_meta = PngInfo()
-                    table_bbox = i.bbox
-                    table_filename = (f'{page_image_filename_base}'
-                                      f'_t{table_counter}.png')
-                    table_counter += 1
-                    bbox = page.bbox
-                    if not bbox_inside(bbox, table_bbox):
-                        table_bbox = bbox
-                    if bbox_area(table_bbox) > 0:     
-                        cropped_page = page.crop(table_bbox)
-                        image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
-                        image_obj.save(table_filename)
-                        bboxes_to_exclude.append(table_bbox)
-                        table_was_saved = True
-                    if table_was_saved:
-                        table_meta.add_text(bbox_key, str(d[bbox_key]))
-                        table_meta.add_text(page_key, str(d[page_key]))
-                        img = Image.open(table_filename)
-                        img.save(table_filename, pnginfo=table_meta)
+                page_meta.add_text(self.bbox_key, str(page_image_bbox))
+                page_meta.add_text(self.page_key, str(self.page_counter))
+                page_meta.add_text(self.imagefile_key, os.path.basename(page_image_filename))
+                page_meta.add_text(self.docfile_key, self.doc_original_filename)
+                page_meta.add_text(self.parent_imagefile_key, "self")
+                page_meta.add_text(self.image_index_key, "-1")
+                if page_was_saved:
+                    img = Image.open(page_image_filename)
+                    img.save(page_image_filename, pnginfo=page_meta)  
 
-                tables = page.extract_tables(table_settings=table_strategy)
-                for e in tables:
-                    table_md = '|'
-                    line = '|'
-                    for c, row in enumerate(e):
-                        for cell in row:
-                            s = str(cell)
-                            s = s.replace("\n", " ")
-                            table_md = f'{table_md} {s} |'
-                            line = f'{line}---|'
-                        if c == 0:
-                            table_md = f'{table_md}\n{line}'
-                        table_md = f'{table_md}\n'
-                print(f'<table {table_counter}>')
-                print(table_md)
-                print('</table>')
-                #exit(0)
-                """            
-                    row = '|'
-                    for r in e:
-                        for cell in r:
-                            row = f'{row}{cell}|' 
-                    print(row)    
-                """    
-                #exit(0)
+                txt = f'{txt}{page_separator}'
+                self.complete_text = f'{self.complete_text}{txt}'
 
-            txt = page.extract_text(layout=True)
-            txt = replace_drop_words_by_stab(txt, DROP_WORDS, "")
-             
-            page_meta = PngInfo()
-            if len(txt) > 0:
-                clean = re.sub(r'\s+', ' ', txt).strip()
-                page_meta.add_text(desc_key, clean)
-            else:
-                page_meta.add_text(desc_key, "None")
-            page_meta.add_text(bbox_key, str(page_image_bbox))
-            page_meta.add_text(page_key, str(page_counter))
-            page_meta.add_text(imagefile_key, os.path.basename(page_image_filename))
-            page_meta.add_text(docfile_key, doc_original_filename)
-            page_meta.add_text(parent_imagefile_key, "self")
-            page_meta.add_text(image_index_key, "-1")
-            if page_was_saved:
-                img = Image.open(page_image_filename)
-                img.save(page_image_filename, pnginfo=page_meta)  
-
-            txt = f'{txt}{page_separator}'
-            complete_text = f'{complete_text}{txt}'
-
-            page_counter += 1
-    return complete_text, page_counter, table_counter, image_counter
+                self.page_counter += 1
+        return self.complete_text, self.page_counter, self.table_counter, self.image_counter
 
 
 def get_page_numbers_list(filename: str) -> list[int]:
@@ -488,8 +567,9 @@ def build_single_txt_doc(filename: str, mode: str = '',
         raise ValueError(f'Not a pdf file: {filename}')
     print(f"\nInput document file: {filename}")
     page_counter = 0
+    pc = PdfCrauler(filename)
     complete_text, page_counter, table_counter, image_counter \
-        = build_flat_txt_doc(filename, SENTENCE_SEPARATOR)
+        = pc.build_flat_txt_doc(SENTENCE_SEPARATOR)
     print(f'Symbols in document: {len(complete_text)}')
     print(f'Page_counter: {page_counter}')
     print(f'Image_counter: {image_counter}')
