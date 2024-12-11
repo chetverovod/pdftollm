@@ -284,8 +284,8 @@ def cropped_text_of_page(page, list_of_bboxes) -> str:
 
 class PdfCrauler():
     def __init__(self, filename: str) -> None:
-        self.desc_key = "Description"
-        self.bbox_key = "Bbox"
+        self.DESC_KEY = "Description"
+        self.BBOX_KEY = "Bbox"
         self.docfile_key = "DocFile"
         self.imagefile_key = "ImageFile"
         self.parent_imagefile_key = "ParentImageFile"
@@ -336,7 +336,7 @@ class PdfCrauler():
                     self.bboxes_to_exclude.append(table_bbox)
                     table_was_saved = True
                 if table_was_saved:
-                    table_meta.add_text(self.bbox_key, str(table_bbox))
+                    table_meta.add_text(self.BBOX_KEY, str(table_bbox))
                     table_meta.add_text(self.page_key, str(self.page_counter))
                     img = Image.open(table_filename)
                     img.save(table_filename, pnginfo=table_meta)
@@ -358,6 +358,18 @@ class PdfCrauler():
             print(table_md)
             print('</table>')
         return len(t)
+    
+    def save_image_of_whole_page(self, page) -> int:
+        self.page_was_saved = False
+        self.page_image_filename_base = (f'{EXTRACTED_IMAGES_PATH}/'
+                                         f'{self.base_filename}_image'
+                                         f'_p{self.page_counter}')
+        self.page_image_filename = (f'{self.page_image_filename_base}.png')
+        self.page_image_bbox = (0, page.height, page.width, 0)
+        image_obj = page.to_image(resolution=IMAGES_RESOLUTION)
+        image_obj.save(self.page_image_filename)
+        self.page_was_saved = True
+    
 
     def save_images(self, page) -> int:
         for image in page.images:
@@ -372,8 +384,8 @@ class PdfCrauler():
             image_bbox = (x0, y1, x1, y0)
             state_dict = {
                             self.imagefile_key: self.image_filename,
-                            self.bbox_key: image_bbox,
-                            self.desc_key: "",
+                            self.BBOX_KEY: image_bbox,
+                            self.DESC_KEY: "",
                             self.page_key: self.page_counter,
                             self.docfile_key: self.doc_original_filename,
                             self.parent_imagefile_key: os.path.basename(self.page_image_filename),
@@ -398,7 +410,6 @@ class PdfCrauler():
     def scan_text_over_images(self, page):
         for obj in page.chars:
             txt = obj['text']
-            #count += 1
             y1 = snap_y(page.height, obj['y1'])
             y0 = snap_y(page.height, obj['y0'])
 
@@ -407,18 +418,18 @@ class PdfCrauler():
             txt_bbox = (x0, y1, x1, y0)
             #print(f"\n<{txt}>: (x0, y1, x1, y0): {txt_bbox}")
             for d in self.page_image_bboxes:
-                if bbox_inside(d[self.bbox_key], txt_bbox):
-                    d[self.desc_key] = f"{d[self.desc_key]}{txt}"
+                if bbox_inside(d[self.BBOX_KEY], txt_bbox):
+                    d[self.DESC_KEY] = f"{d[self.DESC_KEY]}{txt}"
 
     def append_text_to_clip_images(self):
         for d in self.page_image_bboxes:
             meta = PngInfo()
 
-            if len(d[self.desc_key]) > 0:
-                meta.add_text(self.desc_key, d[self.desc_key])
+            if len(d[self.DESC_KEY]) > 0:
+                meta.add_text(self.DESC_KEY, d[self.DESC_KEY])
             else:
-                meta.add_text(self.desc_key, "None")
-            meta.add_text(self.bbox_key, str(d[self.bbox_key]))
+                meta.add_text(self.DESC_KEY, "None")
+            meta.add_text(self.BBOX_KEY, str(d[self.BBOX_KEY]))
             meta.add_text(self.page_key, str(d[self.page_key]))
             meta.add_text(self.imagefile_key, os.path.basename(d[self.imagefile_key]))
             meta.add_text(self.parent_imagefile_key, d[self.parent_imagefile_key])
@@ -439,11 +450,11 @@ class PdfCrauler():
         meta = PngInfo()
         if len(txt) > 0:
             clean = re.sub(r'\s+', ' ', txt).strip()
-            meta.add_text(self.desc_key, clean)
+            meta.add_text(self.DESC_KEY, clean)
         else:
-            meta.add_text(self.desc_key, "None")
+            meta.add_text(self.DESC_KEY, "None")
 
-        meta.add_text(self.bbox_key, str(self.page_image_bbox))
+        meta.add_text(self.BBOX_KEY, str(self.page_image_bbox))
         meta.add_text(self.page_key, str(self.page_counter))
         meta.add_text(self.imagefile_key, os.path.basename(self.page_image_filename))
         meta.add_text(self.docfile_key, self.doc_original_filename)
@@ -462,17 +473,10 @@ class PdfCrauler():
         with pdfplumber.open(self.filename) as pdf:
             for page in pdf.pages:
                 self.bboxes_to_exclude = []
-                self.page_was_saved = False
-                self.page_image_filename_base = (f'{EXTRACTED_IMAGES_PATH}/'
-                                                 f'{self.base_filename}_image'
-                                                 f'_p{self.page_counter}')
-                self.page_image_filename = (f'{self.page_image_filename_base}.png')
-                self.page_image_bbox = (0, page.height, page.width, 0)
-                image_obj = page.to_image(resolution=IMAGES_RESOLUTION)
-                image_obj.save(self.page_image_filename)
-                self.page_was_saved = True
-                self.image_was_saved = False
+                
+                self.save_image_of_whole_page(page)
 
+                self.image_was_saved = False
                 if len(page.images) > 0:
                     self.save_images(page)
                 self.scan_text_over_images(page)
