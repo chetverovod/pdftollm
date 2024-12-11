@@ -282,7 +282,7 @@ def cropped_text_of_page(page, list_of_bboxes) -> str:
     return cropped_text
 
 
-class PdfCrauler():
+class PdfCrawler():
     def __init__(self, filename: str) -> None:
         self.DESC_KEY = "Description"
         self.BBOX_KEY = "Bbox"
@@ -533,7 +533,7 @@ def build_single_txt_doc(filename: str, mode: str = '',
         raise ValueError(f'Not a pdf file: {filename}')
     print(f"\nInput document file: {filename}")
     page_counter = 0
-    pc = PdfCrauler(filename)
+    pc = PdfCrawler(filename)
     complete_text, page_counter, table_counter, image_counter \
         = pc.build_flat_txt_doc(SENTENCE_SEPARATOR)
     print(f'Symbols in document: {len(complete_text)}')
