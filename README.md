@@ -11,7 +11,7 @@ Output picture has name like:
 
 ### Help
 ```
-./pdf_to_txt.py -h
+./pdftollm.py -h
 ```
 
 ### Config File 
@@ -65,7 +65,7 @@ Set desirable path in  variable reference_docs_path of config-file.
 Run parser:
 
 ```
-./pdf_to_txt.py
+./pdftollm.py
 ```
 
 ### Output image files metadata 
@@ -83,12 +83,31 @@ All key names:
  
 <u>Example 2</u>:
 ```
-exiftool -Description -docfile -imagefile -page -bbox ../extracted_images/Норникель_Внутрення_цена_на_углерод_image_p2_n5.png
-Description                     : NiНикель (высокосортный)17%№1PtПлатина12%№1CuМедь2%№1PdПалладий43%№1RhРодий8%№1CoКобальт2%№1EBITDAмлрд долл.6,9Рентабельность EBITDA%48CAPEXмлрд долл.3,0ЧОКмлрд долл.3,1Разработка литиевого (Li) месторождения
-DocFile                         : Норникель_Внутрення_цена_на_углерод.pdf
-ImageFile                       : Норникель_Внутрення_цена_на_углерод_image_p2_n5.png
-Page                            : 2
-Bbox                            : (64, 72, 480, 497)
+exiftool  ./pict_from_pdf_docs/2411.04952v1_image_p1_t1.png
+ExifTool Version Number         : 12.40
+File Name                       : 2411.04952v1_image_p1_t1.png
+Directory                       : ./pict_from_pdf_docs
+File Size                       : 40 KiB
+File Modification Date/Time     : 2024:12:11 13:55:03+03:00
+File Access Date/Time           : 2024:12:11 13:59:50+03:00
+File Inode Change Date/Time     : 2024:12:11 13:55:03+03:00
+File Permissions                : -rw-rw-r--
+File Type                       : PNG
+File Type Extension             : png
+MIME Type                       : image/png
+Image Width                     : 2076
+Image Height                    : 531
+Bit Depth                       : 8
+Color Type                      : Palette
+Compression                     : Deflate/Inflate
+Filter                          : Adaptive
+Interlace                       : Noninterlaced
+Bbox                            : (117.90868238976628, 384.69728, 491.62392, 480.35882710553017)
+Page                            : 1
+Palette                         : (Binary data 768 bytes, use -b option to extract)
+Image Size                      : 2076x531
+Megapixels                      : 1.1
+
 ```
 
 
@@ -103,3 +122,8 @@ Shows path to source document:
 </document>
 ```
 
+## Tests
+
+```
+ python3 -m pytest 
+```
