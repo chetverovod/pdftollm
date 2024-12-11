@@ -28,7 +28,10 @@ def test_pdf_crawler_short_doc():
         = pc.build_flat_txt_doc(SENTENCE_SEPARATOR)
     print(complete_text, page_counter, table_counter, image_counter)
 
-    assert len(complete_text) == 108562
+    if pc.crop_txt is True:
+        assert len(complete_text) == 51236
+    else:
+        assert len(complete_text) == 108562
     assert page_counter == 13
     assert table_counter == 27
     assert image_counter == 159
@@ -55,7 +58,10 @@ def test_pdf_crawler_long_doc():
         = pc.build_flat_txt_doc(SENTENCE_SEPARATOR)
     print(complete_text, page_counter, table_counter, image_counter)
 
-    assert len(complete_text) == 133040
+    if pc.crop_txt is True:
+        assert len(complete_text) == 53024
+    else:
+        assert len(complete_text) == 133040
     assert page_counter == 20
     assert table_counter == 2
     assert image_counter == 21

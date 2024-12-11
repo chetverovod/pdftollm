@@ -33,6 +33,7 @@ SENTENCE_SEPARATOR = '. '
 STAB = 'blabla'
 CROP_TXT = cfg['crop_txt']
 
+
 def find_max_integer_key(dictionary):
     max_value = max(dictionary.values())
     for key, value in dictionary.items():
@@ -327,6 +328,7 @@ class PdfCrawler():
         self.table_was_saved = False
         self.page_image_bbox = ()
         self.page_table_bbox = ()
+        self.crop_txt = CROP_TXT
 
     def save_tables(self, page) -> int:
         found_tables = page.find_tables(table_settings=self.table_strategy)
@@ -491,8 +493,7 @@ class PdfCrawler():
                 img.save(d[self.imagefile_key], pnginfo=meta)
 
     def append_text_to_page_image(self, page) -> str:
-        # if CROP_TXT is True:
-        if CROP_TXT is not True:
+        if self.crop_txt is True:
             txt = cropped_text_of_page(page, self.bboxes_to_exclude)
         else:
             txt = page.extract_text(layout=True)
