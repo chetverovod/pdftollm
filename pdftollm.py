@@ -20,6 +20,8 @@ IMAGES_RESOLUTION = cfg['images_resolution']
 SOURCE_TAG = cfg['source_tag']
 QUOTE_TAG = cfg['quote_tag']
 DROP_WORDS = cfg['drop_words']
+BBOX_MIN_AREA = cfg['bbox_min_area']
+
 PARAGRAPH_TAG = 'paragraph'
 PARAGRAPH_BORDER = '----paragraph_border----'
 PAGE_HEADER_END = 'page_header_end'
@@ -250,16 +252,21 @@ def snap_x(page_width, xin):
 
 
 def bbox_inside(box1: tuple, box2: tuple):
-    """ Is b0x2 inside box1? """
+    """ Is box2 inside box1? """
     res = (box1[0] <= box2[0]) and (box1[1] <= box2[1]) \
         and (box1[2] >= box2[2]) and (box1[3] >= box2[3])
     return res
 
 
 def bbox_area(box: tuple):
-    """ Is b0x2 area calculation  (x0, y1, x1, y0). """
+    """ Is box area calculation  (x0, y1, x1, y0). """
     res = abs((box[2] - box[0])*(box[1] - box[3]))
     return res
+
+
+def bbox_int(box: tuple):
+    """ Return in coordinates of bbox. """
+    return (int(box[0]), int(box[1]), int(box[2]), int(box[3]))
 
 
 def cropped_text_of_page(page, list_of_bboxes) -> str:
@@ -284,6 +291,7 @@ def cropped_text_of_page(page, list_of_bboxes) -> str:
 
 class PdfCrawler():
     def __init__(self, filename: str) -> None:
+        self.bbox_min_area = BBOX_MIN_AREA
         self.DESC_KEY = "Description"
         self.BBOX_KEY = "Bbox"
         self.docfile_key = "DocFile"
@@ -291,7 +299,9 @@ class PdfCrawler():
         self.parent_imagefile_key = "ParentImageFile"
         self.page_key = "Page"
         self.image_index_key = "ImageIndex"
+        self.table_index_key = "TableIndex"
         self.image_was_saved_key = "image_was_saved_key"
+        self.table_was_saved_key = "table_was_saved_key"
         # List of boundary boxes on current page for text removing.
         self.bboxes_to_exclude = []
         self.table_strategy = {
@@ -299,13 +309,13 @@ class PdfCrawler():
             #  "vertical_strategy": "explicit",
             #  "horizontal_strategy": "explicit"
         }
-        self.table_counter = 0
         self.page_was_saved = False
         self.page_counter = 0
         self.image_counter = 0
         self.table_counter = 0
         self.complete_text = ''
         self.filename = filename
+        self.page_table_bboxes = []
         self.page_image_bboxes = []
         #if not self.filename.endswith(".pdf"):
         #    return -1
@@ -314,35 +324,36 @@ class PdfCrawler():
         self.page_image_filename = ''
         self.page_image_filename_base = ''
         self.image_was_saved = False
+        self.table_was_saved = False
         self.page_image_bbox = ()
+        self.page_table_bbox = ()
 
     def save_tables(self, page) -> int:
-        t = page.find_tables(table_settings=self.table_strategy)
-        if len(t) > 0:
+        found_tables = page.find_tables(table_settings=self.table_strategy)
+        extracted_tables = page.extract_tables(table_settings=self.table_strategy)
+        if len(found_tables) > 0:
+            if len(found_tables) != len(extracted_tables):
+                raise ValueError(f"File <{self.filename}>:"
+                                 f"Count of found tables ({len(found_tables)}) is not equal"
+                                 f" to extracted tables ({len(extracted_tables)}).")
+
             table_was_saved = False
-            for i in t:
+            for f, e in zip(found_tables, extracted_tables):
                 table_meta = PngInfo()
-                table_bbox = i.bbox
+                table_bbox = bbox_int(f.bbox)
                 table_filename = (f'{self.page_image_filename_base}'
                                   f'_t{self.table_counter}.png')
                 self.table_counter += 1
-                bbox = page.bbox
+                bbox = bbox_int(page.bbox)
                 if not bbox_inside(bbox, table_bbox):
                     table_bbox = bbox
-                if bbox_area(table_bbox) > 0:     
+                if bbox_area(table_bbox) > self.bbox_min_area:
                     cropped_page = page.crop(table_bbox)
                     image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
                     image_obj.save(table_filename)
                     self.bboxes_to_exclude.append(table_bbox)
                     table_was_saved = True
-                if table_was_saved:
-                    table_meta.add_text(self.BBOX_KEY, str(table_bbox))
-                    table_meta.add_text(self.page_key, str(self.page_counter))
-                    img = Image.open(table_filename)
-                    img.save(table_filename, pnginfo=table_meta)
-
-            tables = page.extract_tables(table_settings=self.table_strategy)
-            for e in tables:
+                
                 table_md = '|'
                 line = '|'
                 for c, row in enumerate(e):
@@ -354,11 +365,52 @@ class PdfCrawler():
                     if c == 0:
                         table_md = f'{table_md}\n{line}'
                     table_md = f'{table_md}\n'
-            print(f'<table {self.table_counter}>')
-            print(table_md)
-            print('</table>')
-        return len(t)
-    
+
+                state_dict = {
+                            self.imagefile_key: table_filename,
+                            self.BBOX_KEY: table_bbox,
+                            self.DESC_KEY: table_md,
+                            self.page_key: self.page_counter,
+                            self.docfile_key: self.doc_original_filename,
+                            self.parent_imagefile_key: os.path.basename(self.page_image_filename),
+                            self.table_index_key: self.table_counter,
+                            self.table_was_saved_key: False
+                        }
+
+                if table_was_saved:
+                    table_meta.add_text(self.BBOX_KEY, str(table_bbox))
+                    table_meta.add_text(self.page_key, str(self.page_counter))
+                    table_meta.add_text(self.DESC_KEY, state_dict[self.DESC_KEY])
+                    img = Image.open(table_filename)
+                    img.save(table_filename, pnginfo=table_meta)
+
+                    state_dict[self.table_was_saved_key] = True
+                    self.page_table_bboxes.append(state_dict)
+
+                print(f'<table {self.table_counter}>')
+                print(table_md)
+                print('</table>')
+
+        return len(found_tables)
+
+    def append_text_to_clip_tables(self):
+        for d in self.page_table_bboxes:
+            meta = PngInfo()
+
+            if len(d[self.DESC_KEY]) > 0:
+                meta.add_text(self.DESC_KEY, d[self.DESC_KEY])
+            else:
+                meta.add_text(self.DESC_KEY, "None")
+            meta.add_text(self.BBOX_KEY, str(d[self.BBOX_KEY]))
+            meta.add_text(self.page_key, str(d[self.page_key]))
+            meta.add_text(self.imagefile_key, os.path.basename(d[self.imagefile_key]))
+            meta.add_text(self.parent_imagefile_key, d[self.parent_imagefile_key])
+            meta.add_text(self.table_index_key, str(d[self.table_index_key]))
+            meta.add_text(self.docfile_key, d[self.docfile_key])
+            if d[self.table_was_saved_key]:
+                img = Image.open(d[self.imagefile_key])
+                img.save(d[self.imagefile_key], pnginfo=meta)
+
     def save_image_of_whole_page(self, page) -> int:
         self.page_was_saved = False
         self.page_image_filename_base = (f'{EXTRACTED_IMAGES_PATH}/'
@@ -369,12 +421,11 @@ class PdfCrawler():
         image_obj = page.to_image(resolution=IMAGES_RESOLUTION)
         image_obj.save(self.page_image_filename)
         self.page_was_saved = True
-    
 
     def save_images(self, page) -> int:
         for image in page.images:
             self.image_filename = (f'{self.page_image_filename_base}'
-                              f'_i{self.image_counter}.png')
+                                   f'_i{self.image_counter}.png')
             y1 = snap_y(page.height, image['y1'])
             y0 = snap_y(page.height, image['y0'])
 
@@ -397,7 +448,7 @@ class PdfCrawler():
             bbox = page.bbox
             if not bbox_inside(bbox, image_bbox):
                 image_bbox = bbox
-            if bbox_area(image_bbox) > 0:     
+            if bbox_area(image_bbox) > self.bbox_min_area:
                 cropped_page = page.crop(image_bbox)
                 image_obj = cropped_page.to_image(resolution=IMAGES_RESOLUTION)
                 image_obj.save(self.image_filename)
@@ -438,9 +489,9 @@ class PdfCrawler():
             if d[self.image_was_saved_key]:
                 img = Image.open(d[self.imagefile_key])
                 img.save(d[self.imagefile_key], pnginfo=meta)
-    
+
     def append_text_to_page_image(self, page) -> str:
-         # if CROP_TXT is True:
+        # if CROP_TXT is True:
         if CROP_TXT is not True:
             txt = cropped_text_of_page(page, self.bboxes_to_exclude)
         else:
@@ -456,7 +507,8 @@ class PdfCrawler():
 
         meta.add_text(self.BBOX_KEY, str(self.page_image_bbox))
         meta.add_text(self.page_key, str(self.page_counter))
-        meta.add_text(self.imagefile_key, os.path.basename(self.page_image_filename))
+        meta.add_text(self.imagefile_key,
+                      os.path.basename(self.page_image_filename))
         meta.add_text(self.docfile_key, self.doc_original_filename)
         meta.add_text(self.parent_imagefile_key, "self")
         meta.add_text(self.image_index_key, "-1")
@@ -473,16 +525,18 @@ class PdfCrawler():
         with pdfplumber.open(self.filename) as pdf:
             for page in pdf.pages:
                 self.bboxes_to_exclude = []
-                
+
                 self.save_image_of_whole_page(page)
 
                 self.image_was_saved = False
                 if len(page.images) > 0:
                     self.save_images(page)
                 self.scan_text_over_images(page)
-                self.append_text_to_clip_images() 
+                self.append_text_to_clip_images()
                 print(self.page_image_bboxes)
                 tables_on_page = self.save_tables(page)
+                if tables_on_page > 0:
+                    self.append_text_to_clip_tables()
                 print(f'page: {self.page_counter} tables: {tables_on_page}')
                 txt = self.append_text_to_page_image(page)
                 txt = f'{txt}{page_separator}'
