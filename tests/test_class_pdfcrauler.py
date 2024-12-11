@@ -11,8 +11,8 @@ def test_aug_amp_control():
     """
     Test function to verify the functionality of the PdfCrauler class.
 
-    This function tests the amp method of the mcs class by
-    applying amplitude control to a generated multichannel sound.
+    This function tests the build_flat_txt_doc method of the class by
+    parsing pdf-file.
 
     Args:
         None
@@ -29,3 +29,7 @@ def test_aug_amp_control():
     print(complete_text, page_counter, table_counter, image_counter)
 
     assert len(complete_text) == 106860
+    assert page_counter == 19
+    assert table_counter == 7
+    assert image_counter == 49
+
